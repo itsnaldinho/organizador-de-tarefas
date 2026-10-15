@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #1a1c23; --card: #242632; --text: #feffff; --primary: #3b82f6; --success: #10b981; --warning: #f59e0b; --danger: #ef4444; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+    .container { max-width: 1000px; margin: auto; }
+    .header { background: var(--card); padding: 20px; border-radius: 12px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    select, input, button { background: #373a4a; border: 1px solid #4b5563; color: white; padding: 10px; border-radius: 6px; }
+    button { cursor: pointer; font-weight: 600; transition: 0.3s; }
+    button:hover { opacity: 0.8; }
+    .btn-blue { background: var(--primary); }
+    
+    table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+    th { text-align: left; padding: 12px; color: #9ca3af; font-size: 12px; text-transform: uppercase; }
+    td { padding: 15px; background: var(--card); }
+    td:first-child { border-radius: 8px 0 0 8px; }
+    td:last-child { border-radius: 0 8px 8px 0; }
+    
+    .status-Pendente { border-left: 5px solid var(--danger); background: rgba(239, 68, 68, 0.1); }
+    .status-Andamento { border-left: 5px solid var(--primary); background: rgba(59, 130, 246, 0.1); }
+    .status-Concluído { border-left: 5px solid var(--success); background: rgba(16, 185, 129, 0.1); }
+
+    /* Estilos do Modal de Resumo */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; }
+    .modal-box { background: var(--bg); padding: 20px; border-radius: 12px; width: 90%; max-width: 700px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #373a4a; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #373a4a; padding-bottom: 10px; margin-bottom: 15px; }
+    .modal-header h3 { margin: 0; color: var(--text); }
+    .modal-header button { background: transparent; border: none; font-size: 20px; color: #9ca3af; padding: 0; }
+    .modal-header button:hover { color: white; }
+    .modal-content { overflow-y: auto; padding-right: 5px; }
+    
+    /* Cores das linhas no resumo */
+    .resumo-dia { margin-bottom: 20px; }
+    .resumo-dia h4 { margin: 0 0 10px 0; color: #9ca3af; border-bottom: 1px dashed #373a4a; padding-bottom: 5px; }
+    .resumo-linha { display: flex; gap: 10px; padding: 10px; margin-bottom: 5px; border-radius: 6px; font-size: 14px; background: var(--card); align-items: center; }
+    .resumo-linha span.hora { font-weight: bold; min-width: 45px; }
+    .resumo-linha span.tarefa { flex: 1; }
+    .resumo-linha span.status-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+    
+    .linha-pendente { border-left: 4px solid var(--danger); }
+    .linha-pendente .status-badge { background: rgba(239, 68, 68, 0.2); color: #ff6b6b; }
+    .linha-andamento { border-left: 4px solid var(--primary); }
+    .linha-andamento .status-badge { background: rgba(59, 130, 246, 0.2); color: #74c0fc; }
+    .linha-concluido { border-left: 4px solid var(--success); }
+    .linha-concluido .status-badge { background: rgba(16, 185, 129, 0.2); color: #69db7c; }
+
+    /* Scrollbar Bonita */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="modal-overlay" id="modalResumo">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="tituloResumo">Histórico dos Últimos 7 Dias</h3>
+        <button onclick="fecharResumo()">✖</button>
+      </div>
+      <div class="modal-content" id="conteudoResumo">
+        </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="header">
+      <div>
+        <label>Responsável:</label><br>
+        <select id="responsavel" onchange="carregarTarefas()"></select>
+      </div>
+      <div>
+        <label>Data Ref:</label><br>
+        <button onclick="mudarData(-1)">◀</button>
+        <input type="date" id="dataAtual" onchange="carregarTarefas()">
+        <button onclick="mudarData(1)">▶</button>
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:10px;">
+         <button class="btn-blue" onclick="abrirResumo()">📊 Resumo Semana</button>
+         <a href="<?= ScriptApp.getService().getUrl() ?>?p=Admin" style="color:var(--primary); text-decoration:none; font-size:12px">Painel Admin ⚙️</a>
+      </div>
+    </div>
+
+    <div id="loading" style="display:none">Processando...</div>
+
+    <table id="tabela">
+      <thead><tr><th>Hora</th><th>Tarefa</th><th>Status</th><th>Comentário</th><th>Ação</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      document.getElementById('dataAtual').valueAsDate = new Date();
+      google.script.run.withSuccessHandler(resps => {
+        let sel = document.getElementById('responsavel');
+        resps.forEach(r => { sel.add(new Option(r, r)); });
+        carregarTarefas();
+      }).getResponsaveis();
+    });
+
+    function mudarData(n) {
+      let d = new Date(document.getElementById('dataAtual').value + 'T12:00:00');
+      d.setDate(d.getDate() + n);
+      document.getElementById('dataAtual').value = d.toISOString().split('T')[0];
+      carregarTarefas();
+    }
+
+    // --- LÓGICA DO PAINEL PRINCIPAL ---
+    function carregarTarefas() {
+      let r = document.getElementById('responsavel').value;
+      let d = document.getElementById('dataAtual').value;
+      if(!r) return;
+      document.getElementById('loading').style.display = 'block';
+      google.script.run.withSuccessHandler(dados => {
+        document.getElementById('loading').style.display = 'none';
+        let html = dados.map((t, i) => `
+          <tr class="status-${t.status}">
+            <td><b>${t.horario}</b></td>
+            <td>${t.tarefa}</td>
+            <td>
+              <select id="st-${i}" style="color:white">
+                <option value="Pendente" ${t.status=='Pendente'?'selected':''}>🔴 Pendente</option>
+                <option value="Andamento" ${t.status=='Andamento'?'selected':''}>🔵 Andamento</option>
+                <option value="Concluído" ${t.status=='Concluído'?'selected':''}>🟢 Concluído</option>
+              </select>
+            </td>
+            <td><input type="text" id="cm-${i}" value="${t.comentario}" placeholder="Obrigatório"></td>
+            <td><button onclick="salvar(${i},'${t.horario}','${t.tarefa}')">Salvar</button></td>
+          </tr>
+        `).join('');
+        document.querySelector('#tabela tbody').innerHTML = html || '<tr><td colspan="5">Nenhuma tarefa prevista.</td></tr>';
+      }).getTarefasDoDia(r, d);
+    }
+
+    function salvar(i, h, t) {
+      let s = document.getElementById('st-'+i).value;
+      let c = document.getElementById('cm-'+i).value;
+      if(!c) return alert('Insira um comentário!');
+      google.script.run.withSuccessHandler(() => { carregarTarefas(); })
+        .salvarLog({dataReferencia: document.getElementById('dataAtual').value, responsavel: document.getElementById('responsavel').value, horario: h, tarefa: t, status: s, comentario: c});
+    }
+
+    // --- LÓGICA DO RESUMO SEMANAL ---
+    function abrirResumo() {
+      let r = document.getElementById('responsavel').value;
+      let d = document.getElementById('dataAtual').value;
+      if(!r) return;
+
+      document.getElementById('modalResumo').style.display = 'flex';
+      document.getElementById('conteudoResumo').innerHTML = '<div style="text-align:center; padding:30px;">Buscando histórico...</div>';
+      
+      google.script.run.withSuccessHandler(renderizarResumo).getResumoSemana(r, d);
+    }
+
+    function fecharResumo() {
+      document.getElementById('modalResumo').style.display = 'none';
+    }
+
+    function renderizarResumo(dadosSemana) {
+      if(dadosSemana.length === 0) {
+        document.getElementById('conteudoResumo').innerHTML = '<div style="text-align:center; padding:30px;">Nenhum histórico encontrado.</div>';
+        return;
+      }
+
+      let html = '';
+      dadosSemana.forEach(dia => {
+        html += `<div class="resumo-dia"><h4>📅 ${dia.diaNome}</h4>`;
+        
+        dia.tarefas.forEach(t => {
+          let classeCor = 'linha-pendente';
+          if(t.status === 'Andamento') classeCor = 'linha-andamento';
+          if(t.status === 'Concluído') classeCor = 'linha-concluido';
+
+          let checkIco = t.status === 'Concluído' ? '✓' : (t.status === 'Andamento' ? '⏳' : '⚠');
+
+          html += `
+            <div class="resumo-linha ${classeCor}">
+              <span class="hora">${t.horario}</span>
+              <span class="tarefa">${t.tarefa}</span>
+              <span class="status-badge">${checkIco} ${t.status}</span>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      });
+
+      document.getElementById('conteudoResumo').innerHTML = html;
+    }
+  </script>
+</body>
+</html>
