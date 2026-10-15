@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: sans-serif; background: #f0f2f5; padding: 20px; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
+    th { background: #2c3e50; color: white; }
+    input[type="text"], select { width: 90%; padding: 5px; box-sizing: border-box; }
+    
+    .dias-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; font-size: 11px; }
+    .dias-grid label { display: flex; align-items: center; gap: 2px; cursor: pointer; white-space: nowrap; }
+    .dias-grid input[type="checkbox"] { margin: 0; cursor: pointer; }
+    
+    .btn-add { background: #27ae60; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 10px; }
+    .btn-save { background: #2980b9; color: white; border: none; padding: 6px 12px; cursor: pointer; border-radius: 4px; margin-bottom: 4px; width: 100%; }
+    .btn-del { background: #c0392b; color: white; border: none; padding: 6px 12px; cursor: pointer; border-radius: 4px; width: 100%; }
+    .acoes-col { display: flex; flex-direction: column; gap: 4px; }
+
+    /* Estilo das Notificações Flutuantes (Toast) */
+    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { min-width: 250px; padding: 15px 20px; border-radius: 8px; color: white; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: slideIn 0.3s forwards, fadeOut 0.3s forwards 4s; }
+    .toast.success { background: #27ae60; border-left: 6px solid #2ecc71; }
+    .toast.error { background: #c0392b; border-left: 6px solid #e74c3c; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; transform: translateY(10px); display:none; } }
+
+    /* Estilo do Modal de Confirmação */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; }
+    .modal-box { background: white; padding: 25px; border-radius: 8px; width: 320px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+    .modal-box h3 { margin-top: 0; color: #2c3e50; }
+    .modal-btns { display: flex; justify-content: space-between; margin-top: 20px; }
+    .modal-btns button { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn-cancelar { background: #bdc3c7; color: #333; }
+    .btn-confirmar { background: #c0392b; color: white; }
+  </style>
+</head>
+<body>
+
+  <div id="toast-container"></div>
+
+  <div class="modal-overlay" id="modalConfirm">
+    <div class="modal-box">
+      <h3>⚠️ Atenção</h3>
+      <p>Tem certeza que deseja excluir esta tarefa permanentemente da planilha?</p>
+      <div class="modal-btns">
+        <button class="btn-cancelar" onclick="fecharModal()">Cancelar</button>
+        <button class="btn-confirmar" id="btnConfirmExcluir">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⚙️ Gestão de Tarefas (Admin)</h2>
+    <a href="<?= ScriptApp.getService().getUrl() ?>" style="text-decoration:none; color:#2980b9; font-weight:bold;">⬅ Voltar para o Painel</a>
+    <hr>
+    <button class="btn-add" onclick="novaLinha()">+ Adicionar Nova Tarefa</button>
+    
+    <table id="tabAdmin">
+      <thead>
+        <tr>
+          <th width="8%">Horário</th><th width="12%">Categoria</th><th width="25%">Descrição</th>
+          <th width="15%">Responsável</th><th width="10%">Rotina</th><th width="20%">Recorrência</th><th width="10%">Ações</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', carregar);
+
+    const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    let listaResponsaveis = []; 
+    let idParaExcluir = null;
+
+    // --- FUNÇÕES DE NOTIFICAÇÃO ---
+    function mostrarNotificacao(mensagem, tipo = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${tipo}`;
+      toast.innerText = mensagem;
+      container.appendChild(toast);
+      setTimeout(() => { if(toast.parentNode) toast.remove(); }, 4500);
+    }
+
+    // --- FUNÇÕES DO MODAL ---
+    function abrirModalExclusao(id) {
+      idParaExcluir = id;
+      document.getElementById('modalConfirm').style.display = 'flex';
+    }
+
+    function fecharModal() {
+      document.getElementById('modalConfirm').style.display = 'none';
+      idParaExcluir = null;
+    }
+
+    document.getElementById('btnConfirmExcluir').addEventListener('click', () => {
+      // 1. Guarda o ID exato que precisa ser excluído antes de fechar o modal
+      const idParaApagar = idParaExcluir; 
+      
+      // 2. Agora sim pode fechar o modal (que zera a variável global)
+      fecharModal(); 
+
+      // 3. Envia o ID correto para o servidor
+      google.script.run.withSuccessHandler(() => {
+        mostrarNotificacao('Tarefa excluída com sucesso!', 'success');
+        carregar();
+      }).withFailureHandler((erro) => {
+        mostrarNotificacao('Erro ao excluir: ' + erro.message, 'error');
+      }).excluirTarefa(idParaApagar);
+    });
+
+    // --- CARREGAMENTO E RENDERIZAÇÃO ---
+    function carregar() {
+      google.script.run.withSuccessHandler(resps => {
+        listaResponsaveis = resps;
+        const nomesPadrao = ["Charles", "Daniel", "Gabriel", "Reginaldo", "Wiliam", "N/A"];
+        nomesPadrao.forEach(nome => { if(!listaResponsaveis.includes(nome)) listaResponsaveis.push(nome); });
+        listaResponsaveis.sort(); 
+        google.script.run.withSuccessHandler(renderizarTabela).getTodasTarefas();
+      }).getResponsaveis();
+    }
+
+    function renderizarTabela(dados) {
+        let html = dados.map(r => {
+          let chksRecorrencia = DIAS_SEMANA.map(dia => `
+            <label><input type="checkbox" value="${dia}" class="chk-${r.id}" ${r.recorrencia.includes(dia) ? 'checked' : ''}>${dia}</label>
+          `).join('');
+
+          let opcoesResponsaveis = listaResponsaveis.map(nome => `
+            <option value="${nome}" ${r.responsavel === nome ? 'selected' : ''}>${nome}</option>
+          `).join('');
+
+          return `
+          <tr>
+            <td><input type="text" id="h-${r.id}" value="${r.horario}"></td>
+            <td><input type="text" id="c-${r.id}" value="${r.categoria}"></td>
+            <td><input type="text" id="d-${r.id}" value="${r.descricao}"></td>
+            <td><select id="r-${r.id}">${opcoesResponsaveis}</select></td>
+            <td>
+              <select id="ro-${r.id}">
+                <option value="Diário" ${r.rotina=='Diário'?'selected':''}>Diário</option>
+                <option value="Diário" ${r.rotina=='Mensal'?'selected':''}>Mensal</option>
+                <option value="Semanal" ${r.rotina=='Semanal'?'selected':''}>Semanal</option>
+              </select>
+            </td>
+            <td><div class="dias-grid">${chksRecorrencia}</div></td>
+            <td>
+              <div class="acoes-col">
+                <button class="btn-save" onclick="salvar(${r.id}, this)">Salvar</button>
+                <button class="btn-del" onclick="abrirModalExclusao(${r.id})">Excluir</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+        document.querySelector('#tabAdmin tbody').innerHTML = html;
+    }
+
+    // --- SALVAR DADOS ---
+    function salvar(id, btnElement) {
+      let recSelecionada = Array.from(document.querySelectorAll(`.chk-${id}:checked`))
+                                .map(el => el.value).join(' ');
+
+      let dados = {
+        horario: document.getElementById('h-'+id).value,
+        categoria: document.getElementById('c-'+id).value,
+        descricao: document.getElementById('d-'+id).value,
+        responsavel: document.getElementById('r-'+id).value,
+        rotina: document.getElementById('ro-'+id).value,
+        recorrencia: recSelecionada
+      };
+
+      let textoOriginal = btnElement.innerText;
+      btnElement.innerText = "Salvando...";
+      btnElement.disabled = true;
+
+      google.script.run
+        .withSuccessHandler(() => {
+          btnElement.innerText = "Salvo!";
+          btnElement.style.background = "#27ae60";
+          mostrarNotificacao('Alterações salvas com sucesso!', 'success');
+          setTimeout(() => {
+            btnElement.innerText = textoOriginal;
+            btnElement.style.background = "#2980b9";
+            btnElement.disabled = false;
+          }, 1500);
+        })
+        .withFailureHandler((erro) => {
+          mostrarNotificacao('Ocorreu um erro: ' + erro.message, 'error');
+          btnElement.innerText = "Erro!";
+          btnElement.style.background = "#c0392b";
+          setTimeout(() => {
+            btnElement.innerText = textoOriginal;
+            btnElement.style.background = "#2980b9";
+            btnElement.disabled = false;
+          }, 3000);
+        })
+        .salvarAlteracaoTarefa(id, dados);
+    }
+
+    function novaLinha() {
+       let respPadrao = listaResponsaveis.length > 0 ? listaResponsaveis[0] : 'N/A';
+       let dados = { horario: '00:00', categoria: 'Nova', descricao: 'Nova Tarefa', responsavel: respPadrao, rotina: 'Diário', recorrencia: '' };
+       google.script.run.withSuccessHandler(() => {
+         mostrarNotificacao('Nova linha adicionada no final da tabela.', 'success');
+         carregar();
+       }).adicionarNovaTarefa(dados);
+    }
+  </script>
+</body>
+</html>
